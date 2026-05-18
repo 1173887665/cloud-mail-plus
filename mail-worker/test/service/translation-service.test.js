@@ -81,3 +81,27 @@ describe('translationService.translate — cache miss', () => {
 		expect(row.translatedSubject).toBe('季度更新');
 	});
 });
+
+describe('translationService.translate — same language', () => {
+	it('returns alreadyInTargetLang without calling AI when source equals target', async () => {
+		testDb.db.insert(email).values({
+			emailId: 3001, userId: 9, subject: 'Hi',
+			content: 'The quick brown fox jumps over the lazy dog. Long enough to detect English.',
+			text: 'The quick brown fox jumps over the lazy dog. Long enough to detect English.',
+			toEmail: 'a@b.c', toName: 'A', accountId: 1,
+		}).run();
+
+		const ctxAI = mkCtx({
+			AI: { run: () => { throw new Error('AI should not be called'); } },
+		});
+
+		const result = await translationService.translate(ctxAI, {
+			emailId: 3001, targetLang: 'en', userId: 9,
+		});
+		expect(result.alreadyInTargetLang).toBe(true);
+		expect(result.sourceLang).toBe('en');
+
+		const rows = testDb.db.select().from(emailTranslation).all();
+		expect(rows.length).toBe(0);
+	});
+});

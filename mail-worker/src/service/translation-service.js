@@ -8,6 +8,7 @@ import {
 } from '../const/translation-const';
 import { htmlToPlainText, paragraphsToHtml } from '../utils/html-utils';
 import { robustJsonParse } from '../utils/robust-json';
+import { detectLang } from '../utils/lang-detect';
 
 const translationService = {
 	async translate(c, { emailId, targetLang, userId }) {
@@ -37,6 +38,11 @@ const translationService = {
 			.where(and(eq(email.emailId, emailId), eq(email.userId, userId)))
 			.get();
 		if (!e) throw new BizError('emailNotFound', 404);
+
+		const detected = detectLang((e.content || e.text || '').slice(0, 500));
+		if (detected !== 'und' && detected === targetLang) {
+			return { alreadyInTargetLang: true, sourceLang: detected };
+		}
 
 		let plainText = htmlToPlainText(e.content || e.text || '');
 		let truncated = false;
