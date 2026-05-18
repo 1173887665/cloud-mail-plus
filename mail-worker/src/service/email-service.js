@@ -3,6 +3,7 @@ import email from '../entity/email';
 import { attConst, emailConst, isDel, settingConst } from '../const/entity-const';
 import { and, desc, eq, gt, inArray, lt, count, asc, sql, ne, or, like, lte, gte } from 'drizzle-orm';
 import { star } from '../entity/star';
+import { emailTranslation } from '../entity/email-translation';
 import settingService from './setting-service';
 import accountService from './account-service';
 import BizError from '../error/biz-error';
@@ -585,11 +586,13 @@ const emailService = {
 		emailIds = emailIds.split(',').map(Number);
 		await attService.removeByEmailIds(c, emailIds);
 		await starService.removeByEmailIds(c, emailIds);
+		await orm(c).delete(emailTranslation).where(inArray(emailTranslation.emailId, emailIds)).run();
 		await orm(c).delete(email).where(inArray(email.emailId, emailIds)).run();
 	},
 
 	async physicsDeleteUserIds(c, userIds) {
 		await attService.removeByUserIds(c, userIds);
+		await orm(c).delete(emailTranslation).where(inArray(emailTranslation.userId, userIds)).run();
 		await orm(c).delete(email).where(inArray(email.userId, userIds)).run();
 	},
 
@@ -824,11 +827,17 @@ const emailService = {
 
 		await attService.removeByEmailIds(c, emailIds);
 
+		await orm(c).delete(emailTranslation).where(inArray(emailTranslation.emailId, emailIds)).run();
 		await orm(c).delete(email).where(conditions.length > 1 ? and(...conditions) : conditions[0]).run();
 	},
 
 	async physicsDeleteByAccountId(c, accountId) {
 		await attService.removeByAccountId(c, accountId);
+		const emailIdsRow = await orm(c).select({emailId: email.emailId}).from(email).where(eq(email.accountId, accountId)).all();
+		const emailIds = emailIdsRow.map(row => row.emailId);
+		if (emailIds.length > 0) {
+			await orm(c).delete(emailTranslation).where(inArray(emailTranslation.emailId, emailIds)).run();
+		}
 		await orm(c).delete(email).where(eq(email.accountId, accountId)).run();
 	},
 
@@ -880,6 +889,9 @@ const emailService = {
 
 	async permanentDelete(c, emailId, userId) {
 		await attService.removeByEmailIds(c, [emailId]);
+		await orm(c).delete(emailTranslation)
+			.where(and(eq(emailTranslation.emailId, emailId), eq(emailTranslation.userId, userId)))
+			.run();
 		await orm(c).delete(email)
 			.where(and(eq(email.emailId, emailId), eq(email.userId, userId)))
 			.run();
