@@ -105,3 +105,57 @@ describe('translationService.translate — same language', () => {
 		expect(rows.length).toBe(0);
 	});
 });
+
+describe('translationService.translate — error paths', () => {
+	it('throws langNotSupported for unknown targetLang', async () => {
+		await expect(
+			translationService.translate(mkCtx(), { emailId: 1, targetLang: 'xx', userId: 1 })
+		).rejects.toMatchObject({ message: 'langNotSupported', code: 400 });
+	});
+
+	it('throws aiNotConfigured when env.AI is missing', async () => {
+		testDb.db.insert(email).values({
+			emailId: 4001, userId: 1, subject: 'S', content: 'Some German text would go here.',
+			text: 'Some German text would go here.', toEmail: 'a@b.c', toName: 'A', accountId: 1,
+		}).run();
+		await expect(
+			translationService.translate(mkCtx(), { emailId: 4001, targetLang: 'zh', userId: 1 })
+		).rejects.toMatchObject({ message: 'aiNotConfigured', code: 503 });
+	});
+
+	it('throws emailNotFound for missing emailId', async () => {
+		const ctxAI = mkCtx({ AI: { run: () => ({ response: '{}' }) } });
+		await expect(
+			translationService.translate(ctxAI, { emailId: 99999, targetLang: 'zh', userId: 1 })
+		).rejects.toMatchObject({ message: 'emailNotFound', code: 404 });
+	});
+
+	it('throws emailNotFound when emailId belongs to a different user', async () => {
+		testDb.db.insert(email).values({
+			emailId: 5001, userId: 100, subject: 'X', content: 'foo', text: 'foo',
+			toEmail: 'a@b.c', toName: 'A', accountId: 1,
+		}).run();
+		const ctxAI = mkCtx({ AI: { run: () => ({ response: '{}' }) } });
+		await expect(
+			translationService.translate(ctxAI, { emailId: 5001, targetLang: 'zh', userId: 200 })
+		).rejects.toMatchObject({ message: 'emailNotFound', code: 404 });
+	});
+
+	it('throws aiBadOutput after retrying once with bad model output', async () => {
+		testDb.db.insert(email).values({
+			emailId: 6001, userId: 1, subject: 'Q',
+			content: 'A German text Das ist ein Test mit genug Inhalt für die Erkennung.',
+			text: 'A German text Das ist ein Test mit genug Inhalt für die Erkennung.',
+			toEmail: 'a@b.c', toName: 'A', accountId: 1,
+		}).run();
+
+		let calls = 0;
+		const ctxAI = mkCtx({
+			AI: { run: () => { calls++; return { response: 'totally not json' }; } },
+		});
+		await expect(
+			translationService.translate(ctxAI, { emailId: 6001, targetLang: 'zh', userId: 1 })
+		).rejects.toMatchObject({ message: 'aiBadOutput', code: 502 });
+		expect(calls).toBe(2);
+	});
+});
