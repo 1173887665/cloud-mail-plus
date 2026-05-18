@@ -119,6 +119,7 @@ const settingService = {
 		settingRow.addVerifyOpen = addVerifyOpen
 
 		settingRow.storageType = await r2Service.storageType(c);
+		settingRow.aiEnabled = !!c.env.AI;
 
 		return settingRow;
 	},
