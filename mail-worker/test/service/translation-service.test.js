@@ -159,3 +159,29 @@ describe('translationService.translate — error paths', () => {
 		expect(calls).toBe(2);
 	});
 });
+
+describe('translationService.translate — truncation', () => {
+	it('truncates input and sets truncated=true when over MAX_INPUT_CHARS', async () => {
+		const longText = 'Das ist ein deutscher Text. '.repeat(2000);
+		testDb.db.insert(email).values({
+			emailId: 7001, userId: 1, subject: 'Long', content: longText, text: longText,
+			toEmail: 'a@b.c', toName: 'A', accountId: 1,
+		}).run();
+
+		let receivedBody;
+		const mockAI = {
+			run: async (_model, payload) => {
+				receivedBody = payload.messages[1].content;
+				return { response: JSON.stringify({ sourceLang: 'de', subject: 'Long', body: 'OK' }) };
+			},
+		};
+		const ctxAI = mkCtx({ AI: mockAI });
+
+		const result = await translationService.translate(ctxAI, {
+			emailId: 7001, targetLang: 'zh', userId: 1,
+		});
+		expect(result.truncated).toBe(true);
+		expect(receivedBody.length).toBeLessThan(longText.length);
+		expect(receivedBody).toContain('[...truncated]');
+	});
+});
