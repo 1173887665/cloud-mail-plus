@@ -30,8 +30,31 @@ const dbInit = {
 		await this.v2_9DB(c);
 		await this.v3DB(c);
 		await this.v3_1DB(c);
+		await this.v3_2DB(c);
 		await settingService.refresh(c);
 		return c.text('success');
+	},
+
+	async v3_2DB(c) {
+		try {
+			await c.env.db.prepare(`
+				CREATE TABLE IF NOT EXISTS email_translation (
+					email_id INTEGER NOT NULL,
+					target_lang TEXT NOT NULL,
+					user_id INTEGER NOT NULL,
+					translated_subject TEXT NOT NULL,
+					translated_content TEXT NOT NULL,
+					source_lang TEXT,
+					model TEXT NOT NULL,
+					create_time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+					PRIMARY KEY (email_id, target_lang)
+				)
+			`).run();
+			await c.env.db.prepare(`CREATE INDEX IF NOT EXISTS idx_translation_user ON email_translation(user_id)`).run();
+			await c.env.db.prepare(`CREATE INDEX IF NOT EXISTS idx_translation_email ON email_translation(email_id)`).run();
+		} catch (e) {
+			console.warn(`跳过字段：${e.message}`);
+		}
 	},
 
 	async v3_1DB(c) {
