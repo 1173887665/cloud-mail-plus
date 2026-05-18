@@ -87,6 +87,7 @@ const premKey = {
 	'reg-key:add': ['/regKey/add'],
 	'reg-key:query': ['/regKey/list','/regKey/history'],
 	'reg-key:delete': ['/regKey/delete','/regKey/clearNotUse'],
+	'email:translate': ['/translation/translate'],
 };
 
 app.use('*', async (c, next) => {

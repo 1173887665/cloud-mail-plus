@@ -65,6 +65,12 @@ const zh = {
 	notAdmin: '输入的邮箱不是管理员邮箱',
 	emailExistDatabase: '有邮箱已存在数据库中',
 	notConfigOss: '对象存储未配置',
+	langNotSupported: '不支持的目标语言',
+	aiNotConfigured: 'AI 服务未配置',
+	emailNotFound: '邮件不存在',
+	aiBadOutput: '翻译服务返回异常',
+	aiTimeout: '翻译请求超时',
+	aiRateLimited: '翻译请求过多，请稍后重试',
 	perms: {
 		"邮件": "邮件",
 		"邮件发送": "邮件发送",
