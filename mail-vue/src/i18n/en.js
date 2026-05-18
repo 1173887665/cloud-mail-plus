@@ -360,7 +360,15 @@ const en = {
     aiAgentConfirmSend: 'Confirm send',
     aiAgentConfirmDelete: 'Confirm delete',
     aiAgentPermanentWarn: 'Permanent — cannot be undone.',
-    aiAgentCancel: 'Cancel'
+    aiAgentCancel: 'Cancel',
+    translate: 'Translate',
+    translateBack: 'Show original',
+    translationCached: 'Translation cached — click to view',
+    translatedFrom: 'Translated from {lang}',
+    showOriginal: 'Show original',
+    alreadyInTargetLang: 'Email is already in target language',
+    translationFailed: 'Translation failed, please retry',
+    langUnknown: 'auto'
 }
 
 export default en

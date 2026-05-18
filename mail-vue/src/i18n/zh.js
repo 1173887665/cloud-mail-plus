@@ -360,6 +360,14 @@ const zh = {
     aiAgentConfirmSend: '确认发送',
     aiAgentConfirmDelete: '确认删除',
     aiAgentPermanentWarn: '永久删除 —— 不可恢复。',
-    aiAgentCancel: '取消'
+    aiAgentCancel: '取消',
+    translate: '翻译',
+    translateBack: '显示原文',
+    translationCached: '已缓存译文，点击查看',
+    translatedFrom: '已从 {lang} 翻译',
+    showOriginal: '查看原文',
+    alreadyInTargetLang: '邮件已是当前语言',
+    translationFailed: '翻译失败，请稍后重试',
+    langUnknown: '自动检测'
 }
 export default zh
