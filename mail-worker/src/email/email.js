@@ -44,7 +44,16 @@ export async function email(message, env, ctx) {
 
 		const email = await PostalMime.parse(content);
 
-		const account = await accountService.selectByEmailIncludeDel({ env: env }, message.to);
+		let account = await accountService.selectByEmailIncludeDel({ env: env }, message.to);
+
+		// Plus-addressing fallback: strip "+suffix" so jane.doe+anything@domain
+		// delivers into jane.doe@domain mailbox (Gmail/Outlook-style).
+		if (!account) {
+			const canonical = message.to.replace(/^([^@+]+)\+[^@]*@/, '$1@');
+			if (canonical !== message.to) {
+				account = await accountService.selectByEmailIncludeDel({ env: env }, canonical);
+			}
+		}
 
 		if (!account && noRecipient === settingConst.noRecipient.CLOSE) {
 			message.setReject('Recipient not found');
