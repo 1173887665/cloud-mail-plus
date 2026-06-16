@@ -84,9 +84,37 @@ const cfEmailService = {
 		}
 
 		console.log(`[CF Email] sent to ${okCount}/${results.length} recipients`);
+
+		// Sync to Stalwart "Sent Items" so Web UI / API / Agent sends are also
+		// visible alongside Outlook's IMAP-APPEND'd copies. Non-fatal: the email
+		// is already delivered to the recipient — Sent sync is a convenience.
+		if (env.MAIL_BRIDGE_URL && env.MAIL_BRIDGE_KEY) {
+			try {
+				await _syncToStalwartSent(env, fromEmail, rawMime);
+			} catch (e) {
+				console.warn(`[CF Email] Stalwart Sent sync failed (non-fatal): ${e.message}`);
+			}
+		}
+
 		return { success: true, results };
 	}
 };
+
+async function _syncToStalwartSent(env, fromEmail, rawMime) {
+	const url = `${env.MAIL_BRIDGE_URL.replace(/\/$/, '')}/api/sent-append`;
+	const resp = await fetch(url, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			'X-API-Key': env.MAIL_BRIDGE_KEY,
+		},
+		body: JSON.stringify({ from: fromEmail, rawMime }),
+	});
+	if (!resp.ok) {
+		const txt = await resp.text().catch(() => '');
+		throw new Error(`bridge ${resp.status}: ${txt.slice(0, 200)}`);
+	}
+}
 
 // ============================================================================
 // Raw MIME builder
