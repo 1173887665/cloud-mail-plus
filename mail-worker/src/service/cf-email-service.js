@@ -88,7 +88,9 @@ const cfEmailService = {
 		// Sync to Stalwart "Sent Items" so Web UI / API / Agent sends are also
 		// visible alongside Outlook's IMAP-APPEND'd copies. Non-fatal: the email
 		// is already delivered to the recipient — Sent sync is a convenience.
-		if (env.MAIL_BRIDGE_URL && env.MAIL_BRIDGE_KEY) {
+		// Skipped when the caller (e.g. Mail Bridge SMTP relay) tells us the
+		// originating client already APPEND'd a copy.
+		if (env.MAIL_BRIDGE_URL && env.MAIL_BRIDGE_KEY && !form.skipSentSync) {
 			try {
 				await _syncToStalwartSent(env, fromEmail, rawMime);
 			} catch (e) {

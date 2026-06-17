@@ -13,7 +13,7 @@ import emailUtils from '../utils/email-utils';
 import orm from '../entity/orm';
 import email from '../entity/email';
 import { att } from '../entity/att';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, and, gte } from 'drizzle-orm';
 
 /**
  * External API for other apps to send email through Cloud-Mail.
@@ -48,7 +48,7 @@ app.post('/external/send', async (c) => {
 	await verifyApiKey(c);
 
 	const body = await c.req.json();
-	const { from, to, subject, html, text, attachments, cc, bcc, replyTo, headers } = body;
+	const { from, to, subject, html, text, attachments, cc, bcc, replyTo, headers, skipSentSync } = body;
 
 	// Validate required fields
 	if (!from) throw new BizError('from is required');
@@ -85,6 +85,10 @@ app.post('/external/send', async (c) => {
 	if (attachments && Array.isArray(attachments) && attachments.length > 0) {
 		sendForm.attachments = attachments;
 	}
+	// Skip Stalwart Sent-sync when the caller is the Mail Bridge SMTP relay
+	// — the originating IMAP client (Outlook / iPhone Mail) already APPEND'd
+	// the message to its Sent folder. Without this, Sent gets duplicates.
+	if (skipSentSync) sendForm.skipSentSync = true;
 
 	// Send: CF Email first, Resend fallback
 	const useCf = emailProvider !== settingConst.emailProvider.RESEND_ONLY;
@@ -206,6 +210,43 @@ app.get('/external/email/:emailId/export', async (c) => {
 	});
 });
 
+// --- List Message-IDs for a recipient (used by Mail Bridge reconciliation) ---
+//   GET /external/email/list-message-ids?to=<email>&since=<seconds-ago>&limit=<n>
+//   Returns: { items: [{emailId, messageId, createTime}, ...], truncated: bool }
+app.get('/external/email/list-message-ids', async (c) => {
+	await verifyApiKey(c);
+
+	const to = (c.req.query('to') || '').trim().toLowerCase();
+	if (!to) throw new BizError('to query param required');
+
+	const since = Math.max(0, Number(c.req.query('since')) || 0);  // seconds; 0 = no filter
+	const limit = Math.min(5000, Math.max(1, Number(c.req.query('limit')) || 2000));
+
+	const conds = [eq(email.toEmail, to), eq(email.isDel, isDel.NORMAL)];
+	if (since > 0) {
+		const cutoff = new Date(Date.now() - since * 1000).toISOString().replace('T', ' ').slice(0, 19);
+		conds.push(gte(email.createTime, cutoff));
+	}
+
+	const rows = await orm(c).select({
+		emailId: email.emailId,
+		messageId: email.messageId,
+		createTime: email.createTime,
+	}).from(email).where(and(...conds)).limit(limit + 1).all();
+
+	const truncated = rows.length > limit;
+	return c.json(result.ok({
+		to,
+		items: rows.slice(0, limit).map(r => ({
+			emailId: r.emailId,
+			messageId: (r.messageId || '').replace(/^<|>$/g, ''),
+			createTime: r.createTime,
+		})),
+		count: Math.min(rows.length, limit),
+		truncated,
+	}));
+});
+
 // --- Delete email (soft delete) ---
 app.delete('/external/email/:emailId', async (c) => {
 	await verifyApiKey(c);
@@ -247,6 +288,38 @@ app.delete('/external/email/:emailId/permanent', async (c) => {
 	await orm(c).delete(email).where(eq(email.emailId, emailId)).run();
 
 	return c.json(result.ok({ emailId, permanentlyDeleted: true }));
+});
+
+// --- Permanently delete by RFC 5322 Message-ID (used by Stalwart webhook sync) ---
+//   Optional query: ?to=<recipient-email>  — restricts deletion to the row whose to_email matches
+app.delete('/external/email/by-message-id/:messageId/permanent', async (c) => {
+	await verifyApiKey(c);
+
+	const rawMid = c.req.param('messageId');
+	const messageId = decodeURIComponent(rawMid || '').trim();
+	if (!messageId) throw new BizError('Invalid messageId');
+
+	const toFilter = (c.req.query('to') || '').trim().toLowerCase();
+
+	// Match by exact Message-ID — store may have it with/without angle brackets
+	const candidates = [messageId, `<${messageId}>`, messageId.replace(/^<|>$/g, '')];
+	let rows = await orm(c).select().from(email).where(inArray(email.messageId, candidates)).all();
+
+	// Scope to the specific recipient when provided (one Gmail can land in many mailboxes)
+	if (toFilter && rows.length > 0) {
+		rows = rows.filter(r => (r.toEmail || '').toLowerCase() === toFilter);
+	}
+
+	if (rows.length === 0) {
+		return c.json(result.ok({ messageId, to: toFilter || null, matched: 0, permanentlyDeleted: 0 }));
+	}
+
+	const ids = rows.map(r => r.emailId);
+	await attService.removeByEmailIds(c, ids);
+	await starService.removeByEmailIds(c, ids);
+	await orm(c).delete(email).where(inArray(email.emailId, ids)).run();
+
+	return c.json(result.ok({ messageId, to: toFilter || null, matched: ids.length, permanentlyDeleted: ids.length, emailIds: ids }));
 });
 
 // --- Batch delete emails ---
