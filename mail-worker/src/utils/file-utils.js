@@ -18,6 +18,39 @@ const fileUtils = {
 		return base64.split(',')[1] || base64;
 	},
 
+	/**
+	 * Build an RFC 6266 Content-Disposition.
+	 *
+	 * A raw non-ASCII filename in this header makes browsers throw a TypeError
+	 * (the Workers runtime warns about it too), so the download silently fails
+	 * for anyone whose filename is not plain ASCII. The name goes out twice: an
+	 * ASCII-safe `filename=` fallback for old clients, plus the real name in
+	 * `filename*=UTF-8''…`.
+	 */
+	contentDisposition(type, filename) {
+		const name = String(filename || 'file');
+		const ascii = name.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+		const encoded = encodeURIComponent(name)
+			.replace(/['()*]/g, ch => '%' + ch.charCodeAt(0).toString(16).toUpperCase());
+		return `${type}; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+	},
+
+	/**
+	 * Re-encode a Content-Disposition that was stored before the above existed.
+	 * Objects already in R2/S3/KV carry the raw header, so serving must repair it
+	 * rather than hand the broken value straight to the browser.
+	 */
+	sanitizeContentDisposition(value) {
+		if (!value || !/[^\x00-\x7F]/.test(value)) {
+			return value;
+		}
+		const m = value.match(/^\s*([^;]+?)\s*;\s*filename\*?=\s*"?([^";]+?)"?\s*$/i);
+		if (!m) {
+			return value.replace(/[^\x00-\x7F]/g, '_');
+		}
+		return this.contentDisposition(m[1], m[2]);
+	},
+
 	base64ToUint8Array(base64) {
 		const binaryStr = atob(base64);
 		const len = binaryStr.length;
