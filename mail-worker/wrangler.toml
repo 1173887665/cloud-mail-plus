@@ -1,3 +1,18 @@
+# ⚠️  这是模板配置：下面的绑定需要你自己填写自己的资源 ID。
+#
+# 不要在已经部署了 cloud-mail-hybrid 的 Cloudflare 账号下执行 `wrangler deploy`。
+# 三个仓库的 Worker 名同为 `cloud-mail`，一次部署会用这份「零绑定」的配置覆盖掉
+# 生产 Worker —— 自定义域名路由、D1、KV、R2、send_email 绑定全部消失，邮件服务
+# 立即中断。部署前先确认 `name` 与目标账号里现有的 Worker 不冲突。
+#
+# ⚠️  Template config: fill in your own resource IDs below.
+#
+# Do NOT run `wrangler deploy` from here in a Cloudflare account that already
+# runs cloud-mail-hybrid. All three repos declare the same Worker name
+# (`cloud-mail`), so deploying this binding-less config REPLACES the production
+# Worker — custom domain route, D1, KV, R2 and send_email bindings all go away
+# and mail stops flowing. Confirm `name` does not collide before deploying.
+
 name = "cloud-mail"
 main = "src/index.js"
 compatibility_date = "2025-06-04"
