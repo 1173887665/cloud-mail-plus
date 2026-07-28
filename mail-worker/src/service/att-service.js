@@ -84,9 +84,6 @@ const attService = {
 			//邮件正文站内图片转cid附件
 			if (src && (src.startsWith(domainUtils.toOssDomain(r2Domain)) || src.startsWith('attachments/'))) {
 
-				const cid = uuidv4().replace(/-/g, '')
-				img.setAttribute('src', 'cid:' + cid);
-
 				const attData = {};
 
 				if (src.startsWith(domainUtils.toOssDomain(r2Domain))) {
@@ -100,9 +97,39 @@ const attService = {
 					attData.path = origin + '/' + src;
 				}
 
-				attData.contentId = cid;
-				attData.type = attConst.type.EMBED;
-				imageDataList.push(attData);
+				// The outgoing MIME is assembled from `content`; a part without it is
+				// dropped, which used to leave the rewritten `cid:` reference pointing
+				// at nothing and the recipient seeing a broken image. So fetch the bytes
+				// FIRST and only rewrite the src once we know we can attach them —
+				// otherwise leave the original URL, which still renders wherever the
+				// bucket is publicly readable.
+				let objBuff = null;
+				let objType = '';
+				try {
+					const obj = await c.env.r2.get(attData.key);
+					if (obj) {
+						objBuff = await obj.arrayBuffer();
+						objType = obj.httpMetadata?.contentType || '';
+					} else {
+						console.warn(`[att] embedded image missing in R2, keeping URL: ${attData.key}`);
+					}
+				} catch (e) {
+					console.warn(`[att] embedded image read failed, keeping URL: ${attData.key}: ${e.message}`);
+				}
+
+				if (objBuff) {
+					const cid = uuidv4().replace(/-/g, '');
+					img.setAttribute('src', 'cid:' + cid);
+
+					attData.contentId = cid;
+					attData.type = attConst.type.EMBED;
+					attData.content = fileUtils.buffToBase64(objBuff);
+					attData.size = objBuff.byteLength;
+					attData.filename = attData.key.split('/').pop() || 'image';
+					attData.mimeType = objType || 'application/octet-stream';
+					attData.contentType = attData.mimeType;
+					imageDataList.push(attData);
+				}
 
 			}
 
@@ -171,6 +198,9 @@ const attService = {
 			attData.emailId = emailId;
 			attData.accountId = accountId;
 			attData.type = attConst.type.EMBED;
+			// `content` (base64) exists only to build the outgoing MIME. There is no
+			// such column on `attachments` — it must not reach the insert.
+			delete attData.content;
 			if (!attData.buff) {
 				continue;
 			}

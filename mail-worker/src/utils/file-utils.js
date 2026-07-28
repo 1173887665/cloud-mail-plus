@@ -29,6 +29,29 @@ const fileUtils = {
 	},
 
 	/**
+	 * ArrayBuffer / TypedArray → base64. Chunked because
+	 * String.fromCharCode(...bigArray) overflows the call stack on real files.
+	 */
+	buffToBase64(buff) {
+		let bytes;
+		if (buff instanceof Uint8Array) {
+			bytes = buff;
+		} else if (buff instanceof ArrayBuffer) {
+			bytes = new Uint8Array(buff);
+		} else if (ArrayBuffer.isView(buff)) {
+			bytes = new Uint8Array(buff.buffer, buff.byteOffset, buff.byteLength);
+		} else {
+			throw new Error('buffToBase64: unsupported buffer type');
+		}
+		let binary = '';
+		const CHUNK = 0x8000;
+		for (let i = 0; i < bytes.length; i += CHUNK) {
+			binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+		}
+		return btoa(binary);
+	},
+
+	/**
 	 * 将 Base64 数据转换为 File 对象（自动识别 MIME 类型和文件扩展名）
 	 * @param {string} base64Data 带有 data: 前缀的 base64 数据
 	 * @param {string} [customFilename] 可选，传入自定义文件名（不含扩展名）
