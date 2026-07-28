@@ -5,6 +5,7 @@ import verifyRecordService from './service/verify-record-service';
 import emailService from './service/email-service';
 import kvObjService from './service/kv-obj-service';
 import oauthService from "./service/oauth-service";
+import emailEventService from './service/email-event-service';
 export { EmailAgent } from './agent/email-agent';
 export default {
 	 async fetch(req, env, ctx) {
@@ -24,6 +25,11 @@ export default {
 		return env.assets.fetch(req);
 	},
 	email: email,
+	// Cloudflare Email Service delivery events (bounced/complained/...) arrive
+	// here via the `email.sending` event subscription bound in wrangler.toml.
+	async queue(batch, env, ctx) {
+		await emailEventService.consumeBatch(batch, env);
+	},
 	async scheduled(c, env, ctx) {
 		await verifyRecordService.clearRecord({ env })
 		await userService.resetDaySendCount({ env })

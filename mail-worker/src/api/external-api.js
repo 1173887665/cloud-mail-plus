@@ -4,6 +4,7 @@ import BizError from '../error/biz-error';
 import settingService from '../service/setting-service';
 import cfEmailService from '../service/cf-email-service';
 import emailService from '../service/email-service';
+import { normalizeMessageId } from '../service/email-event-service';
 import attService from '../service/att-service';
 import starService from '../service/star-service';
 import emlService from '../service/eml-service';
@@ -96,13 +97,26 @@ app.post('/external/send', async (c) => {
 	const resendToken = resendTokens[fromDomain];
 
 	let cfSent = false;
+	let cfMessageId = '';
 	let resendResult = {};
 	let sendError = null;
 
 	if (useCf && toList.length <= 50) {
 		try {
-			await cfEmailService.send(c.env, sendForm);
+			const cfResult = await cfEmailService.send(c.env, sendForm);
 			cfSent = true;
+
+			// CF rewrites the Message-ID header, so the value returned here — NOT the
+			// one we built into the raw MIME — is what the recipient sees and what
+			// the delivery events reference. It is the only join key we get.
+			const delivered = (cfResult?.results || []).filter(r => r.ok && r.messageId);
+			cfMessageId = normalizeMessageId(delivered[0]?.messageId);
+			if (delivered.length > 1) {
+				console.warn(
+					`[External API] ${delivered.length} recipients: only the first Message-ID ` +
+					`(${cfMessageId}) is persisted, so events for recipients 2..N will log as unmatched`
+				);
+			}
 		} catch (e) {
 			console.error(`[External API] CF Email failed: ${e.message}`);
 			sendError = e.message;
@@ -136,8 +150,12 @@ app.post('/external/send', async (c) => {
 		text: text || '',
 		accountId: 0,
 		userId: 0,
-		status: cfSent ? emailConst.status.DELIVERED : emailConst.status.SENT,
+		// CF only ACCEPTED the message at this point — real delivery is reported
+		// asynchronously by the `email.sending` events (see email-event-service.js),
+		// which overwrite this with delivered/bounced/complained/...
+		status: emailConst.status.SENT,
 		type: emailConst.type.SEND,
+		messageId: cfMessageId,
 		resendEmailId: resendResult?.data?.id || null,
 		recipient: JSON.stringify(toList.map(addr => ({ address: addr, name: '' }))),
 	};
@@ -146,8 +164,9 @@ app.post('/external/send', async (c) => {
 
 	return c.json(result.ok({
 		emailId: emailRow.emailId,
-		status: cfSent ? 'delivered' : 'sent',
+		status: 'sent',
 		provider: cfSent ? 'cloudflare' : 'resend',
+		messageId: cfMessageId || null,
 		resendEmailId: resendResult?.data?.id || null,
 	}));
 });
@@ -179,13 +198,35 @@ app.get('/external/status/:emailId', async (c) => {
 		[emailConst.status.FAILED]: 'failed',
 	};
 
+	// `message` holds the JSON summary written by email-event-service (CF path) or
+	// resend-service. Parse it so callers get structured bounce data instead of
+	// having to string-match; keep the raw field for backward compatibility.
+	let delivery = null;
+	if (emailRow.message) {
+		try {
+			delivery = JSON.parse(emailRow.message);
+		} catch {
+			delivery = null;
+		}
+	}
+
+	const bounced = emailRow.status === emailConst.status.BOUNCED;
+
 	return c.json(result.ok({
 		emailId: emailRow.emailId,
 		status: STATUS_MAP[emailRow.status] || 'unknown',
 		statusCode: emailRow.status,
+		// Convenience flags — a caller deciding "stop emailing this address"
+		// should gate on `bounced && hardBounce`, never on `bounced` alone and
+		// never on `delayed` (Gmail throttling would suppress real users).
+		bounced,
+		hardBounce: bounced && delivery?.bounceType === 'hard',
+		terminal: delivery?.terminal === true,
 		from: emailRow.sendEmail,
 		subject: emailRow.subject,
 		recipient: JSON.parse(emailRow.recipient || '[]'),
+		messageId: emailRow.messageId || null,
+		delivery,
 		resendEmailId: emailRow.resendEmailId,
 		message: emailRow.message,
 		createTime: emailRow.createTime,
@@ -303,7 +344,13 @@ app.delete('/external/email/by-message-id/:messageId/permanent', async (c) => {
 
 	// Match by exact Message-ID — store may have it with/without angle brackets
 	const candidates = [messageId, `<${messageId}>`, messageId.replace(/^<|>$/g, '')];
-	let rows = await orm(c).select().from(email).where(inArray(email.messageId, candidates)).all();
+	// RECEIVE only. Outbound rows now carry a Message-ID too, and a round-trip
+	// (our domain → our domain) puts the SAME id on both rows — without this
+	// guard Mail Bridge's delete-sync would take out the sent copy as well.
+	let rows = await orm(c).select().from(email).where(and(
+		inArray(email.messageId, candidates),
+		eq(email.type, emailConst.type.RECEIVE),
+	)).all();
 
 	// Scope to the specific recipient when provided (one Gmail can land in many mailboxes)
 	if (toFilter && rows.length > 0) {

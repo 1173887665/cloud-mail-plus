@@ -55,3 +55,35 @@ crons = ["0 16 * * *"]	# Daily housekeeping at 16:00 UTC
 
 [build]
 command = "pnpm --prefix ../mail-vue install && pnpm --prefix ../mail-vue run build"
+
+# --- Cloudflare Email Service delivery events (optional) ---
+# Uncomment to have the `queue()` handler in src/index.js consume outbound
+# delivery events (delivered/deferred/bounced/failed/rejected/complained) and
+# write real delivery status onto the email row — which is what makes
+# `GET /external/status/:emailId` report bounces instead of a send-time guess.
+#
+# Requires, in your own Cloudflare account:
+#   1. A queue:  npx wrangler queues create email-events
+#   2. One event subscription PER sending domain (wrangler cannot create these
+#      yet — its --source list predates `email.sending`, so use the REST API):
+#
+#      POST /accounts/{account_id}/event_subscriptions/subscriptions
+#      { "name": "<domain>-email-events", "enabled": true,
+#        "events": ["message.delivered","message.deferred","message.bounced",
+#                   "message.failed","message.rejected","message.complained"],
+#        "source":      {"type":"email.sending","zone_id":"<zone>","domain":"<domain>"},
+#        "destination": {"type":"queues.queue","queue_id":"<queue_id>"} }
+#
+#      `source.domain` is mandatory. Domains without a subscription still send
+#      fine — their rows just stay at `sent`.
+#
+# Strongly recommended: configure a dead_letter_queue. Without one, a consumer
+# failure past max_retries silently discards the bounce event.
+#
+#[[queues.consumers]]
+#queue = "email-events"
+#max_batch_size = 25
+#max_batch_timeout = 5
+#max_retries = 3
+#dead_letter_queue = "email-events-dlq"
+

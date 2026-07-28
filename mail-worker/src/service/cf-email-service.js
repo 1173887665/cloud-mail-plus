@@ -90,9 +90,22 @@ const cfEmailService = {
 		// is already delivered to the recipient — Sent sync is a convenience.
 		// Skipped when the caller (e.g. Mail Bridge SMTP relay) tells us the
 		// originating client already APPEND'd a copy.
+		//
+		// The APPEND'd copy MUST carry CF's Message-ID, not the one we built into
+		// rawMime: CF rewrites that header on the way out, so the recipient — and
+		// therefore the `In-Reply-To` of any reply — references CF's id. Keeping
+		// our own id here would leave every reply unable to thread against the
+		// sent message in Outlook. Verified 2026-07-28 by round-trip probe.
+		// Multi-recipient sends get one id per recipient; we use the first, which
+		// is also the one persisted on the email row.
 		if (env.MAIL_BRIDGE_URL && env.MAIL_BRIDGE_KEY && !form.skipSentSync) {
+			const firstOk = results.find(r => r.ok && r.messageId);
+			if (!firstOk) {
+				console.warn('[CF Email] no messageId returned; Sent copy keeps the local Message-ID (replies may not thread)');
+			}
+			const sentMime = firstOk ? _replaceMessageId(rawMime, firstOk.messageId) : rawMime;
 			try {
-				await _syncToStalwartSent(env, fromEmail, rawMime);
+				await _syncToStalwartSent(env, fromEmail, sentMime);
 			} catch (e) {
 				console.warn(`[CF Email] Stalwart Sent sync failed (non-fatal): ${e.message}`);
 			}
@@ -116,6 +129,25 @@ async function _syncToStalwartSent(env, fromEmail, rawMime) {
 		const txt = await resp.text().catch(() => '');
 		throw new Error(`bridge ${resp.status}: ${txt.slice(0, 200)}`);
 	}
+}
+
+/**
+ * Swap the top-level `Message-ID:` header for the one CF actually sent under.
+ * Scoped to the header block on purpose — a forwarded message quoted in the
+ * body can legitimately contain its own `Message-ID:` line, and rewriting that
+ * would corrupt the quoted original.
+ */
+function _replaceMessageId(rawMime, messageId) {
+	const id = String(messageId || '').trim().replace(/^<|>$/g, '');
+	if (!id) return rawMime;
+
+	const sep = rawMime.indexOf('\r\n\r\n');
+	if (sep < 0) return rawMime;
+
+	const head = rawMime.slice(0, sep);
+	// `[^\r\n]*` rather than `.*$` so the CRLF terminator survives the swap.
+	const swapped = head.replace(/^Message-ID:[^\r\n]*/im, `Message-ID: <${id}>`);
+	return swapped + rawMime.slice(sep);
 }
 
 // ============================================================================
