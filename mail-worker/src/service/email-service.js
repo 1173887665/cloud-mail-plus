@@ -623,7 +623,7 @@ const emailService = {
 
 	async allList(c, params) {
 
-		let { emailId, size, name, subject, accountEmail, userEmail, type, timeSort } = params;
+		let { emailId, size, name, subject, accountEmail, userEmail, content, type, timeSort } = params;
 
 		size = Number(size);
 
@@ -681,6 +681,17 @@ const emailService = {
 
 		if (subject) {
 			conditions.push(sql`${email.subject} COLLATE NOCASE LIKE ${'%'+ subject + '%'}`);
+		}
+
+		// 正文搜索。COALESCE(NULLIF(text,''), content) 而不是只搜 text:
+		// 约四分之一的邮件只有 HTML、没有纯文本副本，只搜 text 会让它们永远搜不到，
+		// 而且界面不会有任何提示 —— 搜不到和「确实没有」长得一模一样。
+		// 有纯文本的用纯文本（干净），没有的退回 HTML（可能被标签/样式误命中，
+		// 但误命中是看得见的，漏掉不是）。两者皆空时表达式为 NULL，LIKE 不匹配。
+		if (content) {
+			conditions.push(
+				sql`COALESCE(NULLIF(${email.text}, ''), ${email.content}) COLLATE NOCASE LIKE ${'%' + content + '%'}`
+			);
 		}
 
 		conditions.push(ne(email.status, emailConst.status.SAVING));

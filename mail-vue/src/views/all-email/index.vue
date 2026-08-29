@@ -34,6 +34,7 @@
               >
                 <el-option key="3" :label="$t('sender')" :value="'name'"/>
                 <el-option key="4" :label="$t('subject')" :value="'subject'"/>
+                <el-option key="5" :label="$t('content')" :value="'content'"/>
                 <el-option key="1" :label="$t('user')" :value="'user'"/>
                 <el-option key="2" :label="$t('selectEmail')" :value="'account'"/>
               </el-select>
@@ -136,6 +137,7 @@ const params = reactive({
   accountEmail: null,
   name: null,
   subject: null,
+  content: null,
   searchType: 'name'
 })
 
@@ -169,6 +171,7 @@ const selectTitle = computed(() => {
   if (params.searchType === 'user') return t('user')
   if (params.searchType === 'account') return t('selectEmail')
   if (params.searchType === 'name') return t('sender')
+  if (params.searchType === 'content') return t('content')
   if (params.searchType === 'subject') return t('subject')
 })
 
@@ -241,6 +244,7 @@ function refreshBefore() {
   params.accountEmail = null
   params.name = null
   params.subject = null
+  params.content = null
   params.searchType = 'name'
 }
 
@@ -265,6 +269,10 @@ function search() {
 
   if (params.searchType === 'subject') {
     params.subject = searchValue.value
+  }
+
+  if (params.searchType === 'content') {
+    params.content = searchValue.value
   }
 
   sysEmailScroll.value.refreshList();
