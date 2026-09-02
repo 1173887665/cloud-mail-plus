@@ -682,27 +682,39 @@ const dbInit = {
 	},
 
 	async initAgentColumns(c) {
-		const existing = await c.env.db.prepare(
-			`SELECT name FROM pragma_table_info('user') WHERE name = 'agent_enabled' LIMIT 1`
-		).first();
-		if (existing) return;
+		// Each field is checked separately: prior versions could leave the user
+		// columns present while missing email.ai_metadata, breaking every email query.
+		const columns = [
+			{table: 'user', name: 'agent_enabled', sql: `ALTER TABLE user ADD COLUMN agent_enabled INTEGER NOT NULL DEFAULT 0`},
+			{table: 'user', name: 'agent_auto_draft', sql: `ALTER TABLE user ADD COLUMN agent_auto_draft INTEGER NOT NULL DEFAULT 0`},
+			{table: 'user', name: 'agent_persona', sql: `ALTER TABLE user ADD COLUMN agent_persona TEXT NOT NULL DEFAULT ''`},
+			{table: 'email', name: 'ai_metadata', sql: `ALTER TABLE email ADD COLUMN ai_metadata TEXT NOT NULL DEFAULT ''`},
+		];
 
-		await c.env.db.batch([
-			c.env.db.prepare(`ALTER TABLE user ADD COLUMN agent_enabled INTEGER NOT NULL DEFAULT 0`),
-			c.env.db.prepare(`ALTER TABLE user ADD COLUMN agent_auto_draft INTEGER NOT NULL DEFAULT 0`),
-			c.env.db.prepare(`ALTER TABLE user ADD COLUMN agent_persona TEXT NOT NULL DEFAULT ''`),
-			c.env.db.prepare(`ALTER TABLE email ADD COLUMN ai_metadata TEXT NOT NULL DEFAULT ''`),
-			c.env.db.prepare(`
-				CREATE TABLE IF NOT EXISTS agent_message (
-					id INTEGER PRIMARY KEY AUTOINCREMENT,
-					user_id INTEGER NOT NULL,
-					role TEXT NOT NULL,
-					parts TEXT NOT NULL,
-					create_time TEXT DEFAULT CURRENT_TIMESTAMP
-				)
-			`),
-			c.env.db.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_message_user ON agent_message(user_id, id)`),
-		]);
+		for (const column of columns) {
+			const existing = await c.env.db.prepare(
+				`SELECT name FROM pragma_table_info('${column.table}') WHERE name = '${column.name}' LIMIT 1`
+			).first();
+			if (existing) continue;
+
+			try {
+				await c.env.db.prepare(column.sql).run();
+			} catch (error) {
+				// Concurrent initialization can add a field between the schema check and ALTER.
+				console.warn(`Skipping ${column.table}.${column.name}: ${error.message}`);
+			}
+		}
+
+		await c.env.db.prepare(`
+			CREATE TABLE IF NOT EXISTS agent_message (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id INTEGER NOT NULL,
+				role TEXT NOT NULL,
+				parts TEXT NOT NULL,
+				create_time TEXT DEFAULT CURRENT_TIMESTAMP
+			)
+		`).run();
+		await c.env.db.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_message_user ON agent_message(user_id, id)`).run();
 	}
 };
 export { dbInit };
